@@ -4,9 +4,10 @@ from typing import Optional, Dict, Union, Type, List
 import re
 
 
-
 class File:
-    def __init__(self, filename: str, content:str = "", replacer: Optional[dict] = None):
+    def __init__(
+        self, filename: str, content: str = "", replacer: Optional[dict] = None
+    ):
         self.filename = self._check_filename(filename)
         self.content = content
         self.replacer = replacer
@@ -15,7 +16,7 @@ class File:
     def name(self):
         return self.filename
 
-    def replace_content(self, with_save = False):
+    def replace_content(self, with_save=False):
         pattern = r"\{\{\s*(\w+)\s*\}\}"
         if self.replacer is not None:
             content = re.sub(pattern, self.replace_keys, self.content)
@@ -28,7 +29,7 @@ class File:
         key = match.group(1)
         return self.replacer.get(key, match.group(0))
 
-    def update_replacer(self, d: Dict ):
+    def update_replacer(self, d: Dict):
         self.replacer.update(d)
 
     def set_content(self, content):
@@ -52,6 +53,13 @@ class File:
         }
 
 
+class PyFile(File):
+    def _check_filename(self, filename: str):
+        try:
+            filename = super()._check_filename(filename)
+        except Exception:
+            filename = f"{filename}.py"
+        return filename
 
 
 class Folder(list):
@@ -78,8 +86,12 @@ class Folder(list):
             self.append(item)
 
     def _check_if_exists(self, item, obj: Union[Type[File], Type["Folder"]]):
-        if isinstance(item, obj) and any(f.name == item.name for f in self if isinstance(f, obj)):
-            raise ValueError(f"{obj.__name__} with name '{item.name}' already exists in folder '{self.name}'.")
+        if isinstance(item, obj) and any(
+            f.name == item.name for f in self if isinstance(f, obj)
+        ):
+            raise ValueError(
+                f"{obj.__name__} with name '{item.name}' already exists in folder '{self.name}'."
+            )
 
     def _check_name(self, name: str):
         if len(name.split(".")) > 1:
@@ -97,7 +109,7 @@ class Folder(list):
             )
         return result
 
-    def to_dict(self, parent_path: Union[str, Path] = "", create_root = True):
+    def to_dict(self, parent_path: Union[str, Path] = "", create_root=True):
         path = Path(parent_path).absolute()
         if create_root:
             path = path.joinpath(self.name)
@@ -109,15 +121,17 @@ class Folder(list):
                 result["contents"].append(item.to_dict(path))
         return result
 
+
 class PyModule(Folder):
     def __init__(self, name: str, files: Optional[List[File]] = None):
         super().__init__(name, files)
         self.append(File("__init__.py"))
 
+
 class FileManager:
 
     @staticmethod
-    def _check_is_empty(path:Path):
+    def _check_is_empty(path: Path):
         if not Path(path).is_dir:
             raise ValueError("argument path should be a folder")
         if len(list(Path(path).iterdir())) > 0:
@@ -130,7 +144,7 @@ class FileManager:
             raise RuntimeError(f"{path} folder is not exists")
 
     @staticmethod
-    def _check_if_not_exists(path:Path):
+    def _check_if_not_exists(path: Path):
         if path.exists():
             raise RuntimeError(f"{path} already exists")
 
@@ -139,9 +153,8 @@ class FileManager:
         print("\n")
         print(root_folder)
 
-
     @staticmethod
-    def build(structure:dict):
+    def build(structure: dict):
         Path(structure.get("path")).mkdir(exist_ok=True)
         for item in structure.get("contents", []):
             if "contents" in item:  # It's a folder
@@ -153,7 +166,6 @@ class FileManager:
                 with open(file_path, "w") as f:
                     f.write(item.get("content", ""))
                     f.close()
-
 
     @staticmethod
     def generate(root_folder, path: Optional[Union[str, Path]] = None):
@@ -169,5 +181,10 @@ class FileManager:
         structure = root_folder.to_dict(path, create_root)
         FileManager.build(structure)
 
+    @staticmethod
+    def insert(files: List[dict]):
 
-
+        dummy = {"path": "", "contents": files}
+        for file in files:
+            FileManager._check_if_not_exists(Path(file.get("path")))
+        FileManager.build(dummy)
