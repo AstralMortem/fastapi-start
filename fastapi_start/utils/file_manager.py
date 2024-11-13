@@ -123,9 +123,15 @@ class Folder(list):
 
 
 class PyModule(Folder):
-    def __init__(self, name: str, files: Optional[List[File]] = None):
+    def __init__(
+        self,
+        name: str,
+        files: Optional[List[File]] = None,
+        init_content: str = "",
+        init_replacer: dict = {},
+    ):
         super().__init__(name, files)
-        self.append(File("__init__.py"))
+        self.append(File("__init__.py", init_content, init_replacer))
 
 
 class FileManager:

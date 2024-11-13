@@ -1,7 +1,4 @@
 from pathlib import Path
-
-from dynaconf import inspect_settings
-
 from fastapi_start.utils.file_manager import File, Folder, FileManager, PyModule, PyFile
 from fastapi_start.utils.string import camel2snake, snake2camel
 
@@ -42,6 +39,7 @@ ALEMBIC_MIGRATIONS_DIR = "@path {this.BASE_DIR}/models/migrations"
 ALEMBIC_CONFIG_PATH = "@path {this.ALEMBIC_MIGRATIONS_DIR.parent}/alembic.ini"
 
 DATABASE_URL = "@format sqlite+aiosqlite:///{this.BASE_DIR}/db.sqlite"
+BASE_ROUTER = "@format {this.BASE_DIR.name}.routes"
 """
 
 ALEMBIC_INI_CONTENT = """
@@ -102,6 +100,18 @@ datefmt = %H:%M:%S
 
 """
 
+ROUTER_INIT_CONTENT = """from fastapi_start.routers import path
+
+ENDPOINTS = [
+    # add your endpoints here
+]
+"""
+
+DEPENDENCIES_CONTENT = """from fastapi import Depends
+from fastapi_start.db.session import get_db, AsyncSession
+
+"""
+
 
 def create_project(title, path):
     from fastapi_start.db import migrations
@@ -111,7 +121,8 @@ def create_project(title, path):
     core_folder = PyModule("core")
     asgi = File("asgi.py", ASGI_PY_CONTENT, {"project_name": title})
     config = File("config.toml", CONFIG_TOML_CONTENT)
-    core_folder.extend([asgi, config])
+    dependencies = File("dependencies.py", DEPENDENCIES_CONTENT)
+    core_folder.extend([asgi, config, dependencies])
 
     models_folder = PyModule("models")
     models_folder.append(Folder("migrations"))
@@ -127,7 +138,7 @@ def create_project(title, path):
 
     entities_folder = PyModule("entities")
 
-    routers_folder = PyModule("routes")
+    routers_folder = PyModule("routes", init_content=ROUTER_INIT_CONTENT)
 
     repositories_folder = PyModule("repositories")
 
@@ -153,13 +164,22 @@ def create_entity_file(name, fields):
         fields_str = "\n\t".join([f"{field[0]}: {field[1]}" for field in fields])
     else:
         fields_str = "pass"
-    content = """from pydantic import BaseModel
+    content = """from fastapi_start.dto import DTO
 from uuid import UUID
 from datetime import datetime, date
 
 
-class {{entity_name}}DTO(BaseModel):
-\t{{fields_str}}"""
+class {{entity_name}}DTO(DTO):
+\t{{fields_str}}
+
+
+class {{entity_name}}CreateDTO(DTO):
+\t{{fields_str}}
+
+
+class {{entity_name}}UpdateDTO(DTO):
+\t{{fields_str}}
+"""
     return PyFile(
         camel2snake(name),
         content,
@@ -168,14 +188,27 @@ class {{entity_name}}DTO(BaseModel):
 
 
 def create_model_file(name, fields):
+    pk_record = {
+        "id:UUID": "id: Mapped[UUID] = mapped_column(default=uuid4, primary_key=True)",
+        "id:int": "id: Mapped[int] = mapped_column(primary_key=True)",
+        "id:str": "id: Mapped[str] = mapped_column(primary_key=True)",
+    }
+
     if fields:
         fields_str = "\n\t".join(
-            [f"{field[0]}: Mapped[{field[1]}]" for field in fields]
+            [
+                (
+                    f"{field[0]}: Mapped[{field[1]}]"
+                    if f"{field[0]}:{field[1]}" not in pk_record
+                    else pk_record.get(f"{field[0]}:{field[1]}")
+                )
+                for field in fields
+            ]
         )
     else:
         fields_str = "pass"
     content = """from fastapi_start.db import models, Mapped, mapped_column
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime, date
 
 
@@ -215,12 +248,13 @@ from fastapi_start.repositories import CRUDRepositoryImpl, AbstractRepository
 from {{project_name}}.models.{{model_module}} import {{repository_name}}Model
 
 
-class {{repository_name}}AbstractRepository(AbstractRepository[{{repository_name}}Model], ABC):
+class Abstract{{repository_name}}Repository(AbstractRepository[{{repository_name}}Model], ABC):
     pass
 
 
-class {{repository_name}}RepositoryImpl({{repository_name}}AbstractRepository, CRUDRepositoryImpl[{{repository_name}}Model]):
-    pass"""
+class {{repository_name}}RepositoryImpl(Abstract{{repository_name}}Repository, CRUDRepositoryImpl[{{repository_name}}Model]):
+    model = {{repository_name}}Model
+"""
     return PyFile(
         camel2snake(name),
         content,
@@ -232,6 +266,64 @@ class {{repository_name}}RepositoryImpl({{repository_name}}AbstractRepository, C
     )
 
 
+def create_router_file(name, fields):
+    from fastapi_start.conf import settings
+
+    pk_field = filter(lambda field: field[0] == "id", fields)
+    pk_field = list(pk_field)
+    if len(pk_field) >= 1:
+        pk_field = f"{pk_field[0][1]}"
+    else:
+        pk_field = ""
+
+    content = """from fastapi import Depends
+from fastapi_start.routers import DefaultView, endpoint
+from {{project_name}}.entities.{{entity_module}} import {{entity_name}}DTO, {{entity_name}}CreateDTO, {{entity_name}}UpdateDTO
+from {{project_name}}.services.{{entity_module}} import {{entity_name}}Service
+from {{project_name}}.core.dependencies import get_{{entity_module}}_service
+from uuid import UUID
+
+
+class {{entity_name}}View(DefaultView[{{pk_field}}, {{entity_name}}CreateDTO,{{entity_name}}UpdateDTO]):
+\tcreate_dto = {{entity_name}}CreateDTO
+\tupdate_dto = {{entity_name}}UpdateDTO
+\tpk_field = {{pk_field}}
+\tservice: {{entity_name}}Service = Depends(get_{{entity_module}}_service)
+"""
+
+    return PyFile(
+        camel2snake(name),
+        content,
+        {
+            "entity_name": snake2camel(name),
+            "project_name": settings.BASE_DIR.name,
+            "entity_module": camel2snake(name),
+            "pk_field": pk_field,
+        },
+    )
+
+
+def override_dependencies(name):
+    from fastapi_start.conf import settings
+
+    dependencies_file = settings.BASE_DIR.joinpath("core", "dependencies.py")
+    new_content = """from {{project_name}}.services.{{module}} import {{entity}}Service
+from {{project_name}}.repositories.{{module}} import {{entity}}RepositoryImpl
+
+def get_{{module}}_service(db: AsyncSession = Depends(get_db)):
+    return {{entity}}Service({{entity}}RepositoryImpl(db))
+
+"""
+
+    new_content = new_content.replace("{{project_name}}", settings.BASE_DIR.name)
+    new_content = new_content.replace("{{module}}", camel2snake(name))
+    new_content = new_content.replace("{{entity}}", snake2camel(name))
+
+    with open(dependencies_file, "a") as f:
+        f.write(new_content)
+        f.close()
+
+
 def create_entity(name, fields):
     from fastapi_start.conf import settings
 
@@ -239,6 +331,7 @@ def create_entity(name, fields):
     model_file = create_model_file(name, fields)
     service_file = create_service_file(name)
     repository_file = create_repository_file(name)
+    router_file = create_router_file(name, fields)
 
     dto_file = dto_file.to_dict(settings.BASE_DIR.joinpath("entities"), False)
     model_file = model_file.to_dict(settings.BASE_DIR.joinpath("models"), False)
@@ -246,5 +339,12 @@ def create_entity(name, fields):
     repository_file = repository_file.to_dict(
         settings.BASE_DIR.joinpath("repositories"), False
     )
+    router_file = router_file.to_dict(settings.BASE_DIR.joinpath("routes"), False)
 
-    FileManager.insert([dto_file, model_file, service_file, repository_file])
+    try:
+        FileManager.insert(
+            [dto_file, model_file, service_file, repository_file, router_file]
+        )
+        override_dependencies(name)
+    except Exception as e:
+        print(f"Error {e}")
