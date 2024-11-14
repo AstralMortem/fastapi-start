@@ -1,7 +1,7 @@
 import uvicorn
 import typer
 from rich import print
-from .file_templates import create_project, create_entity
+from fastapi_start.core.management.file_managment import create_project, create_entity
 from alembic.config import Config as AlembicConfig
 from alembic import command as alembic_command
 
@@ -9,8 +9,12 @@ cli_app = typer.Typer()
 
 
 @cli_app.command()
-def startproject(title: str, path=None):
-    create_project(title, path)
+def startproject(title: str, path=""):
+    try:
+        create_project(title, path)
+        print(f"[green]Project {title} created successfully.[/green]")
+    except Exception as e:
+        print(f"[red]Error creating project: [bold]{e}[/bold][/red]")
 
 
 @cli_app.command()
