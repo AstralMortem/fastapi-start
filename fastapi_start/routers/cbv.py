@@ -1,4 +1,14 @@
-from typing import List, Callable, Type, Any, get_type_hints, Union, Generic, ClassVar
+from typing import (
+    List,
+    Callable,
+    Type,
+    Any,
+    get_type_hints,
+    Union,
+    Generic,
+    ClassVar,
+    Optional,
+)
 from fastapi import APIRouter, Depends, Body
 import inspect
 from fastapi import Path
@@ -8,6 +18,8 @@ from .base import AbstractView, Metadata, RouteType, HTTPMethod
 from fastapi_start.services import CommonServiceImpl
 from fastapi_start.dto import DTO
 from fastapi_start.core.typing import CREATE_DTO, UPDATE_DTO, T_PK
+from fastapi_start.utils.filter import Filter, FilterDepends
+from fastapi_start.utils.pagination import PaginationParams
 
 METADATA_VAR = "__metadata__"
 CBV_VAR = "__cbv_class__"
@@ -155,8 +167,12 @@ class DefaultView(Generic[T_PK, CREATE_DTO, UPDATE_DTO], GenericView):
     update_dto: ClassVar[UPDATE_DTO]
     pk_field: ClassVar[T_PK]
 
-    async def list(self):
-        return await self.service.list_items()
+    async def list(
+        self,
+        pagination: PaginationParams = Depends(),
+        filters: Optional[Type[Filter]] = FilterDepends(Filter),
+    ):
+        return await self.service.list_items(pagination, filters)
 
     async def get(self, id: T_PK = Path()):
         return await self.service.get_item(id)

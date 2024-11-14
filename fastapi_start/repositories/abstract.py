@@ -2,9 +2,11 @@ from abc import ABC, abstractmethod
 from typing import Generic, Type, Union, List, Optional
 from uuid import UUID
 
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from fastapi_start.core.typing import T_MODEL
+from fastapi_start.core.typing import T_MODEL, T_PK
+from fastapi_start.utils.pagination import PaginationParams, Page
+from fastapi_start.utils.filter import Filter, FilterDepends
 
 
 class BaseAbstractRepository(ABC, Generic[T_MODEL]):
@@ -20,15 +22,21 @@ class AbstractCreate(BaseAbstractRepository[T_MODEL], ABC):
         raise NotImplementedError
 
 
-class AbstractGet(BaseAbstractRepository[T_MODEL], ABC):
+class AbstractGet(Generic[T_PK, T_MODEL], BaseAbstractRepository[T_MODEL], ABC):
     @abstractmethod
-    async def get_by_id(self, id: Union[str, int, UUID]) -> Optional[T_MODEL]:
+    async def get_by_id(self, id: T_PK) -> Optional[T_MODEL]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get(self, filters: Optional[Filter] = None) -> Optional[T_MODEL]:
         raise NotImplementedError
 
 
 class AbstractList(BaseAbstractRepository[T_MODEL], ABC):
     @abstractmethod
-    async def list(self, **kwargs) -> List[T_MODEL]:
+    async def list(
+        self, pagination: PaginationParams, filters: Optional[Filter] = None
+    ) -> Page[T_MODEL]:
         raise NotImplementedError
 
 
@@ -44,7 +52,9 @@ class AbstractUpdate(BaseAbstractRepository[T_MODEL], ABC):
         raise NotImplementedError
 
 
-class AbstractReadRepository(AbstractGet[T_MODEL], AbstractList[T_MODEL], ABC):
+class AbstractReadRepository(
+    Generic[T_PK, T_MODEL], AbstractGet[T_PK, T_MODEL], AbstractList[T_MODEL], ABC
+):
     pass
 
 
@@ -55,6 +65,9 @@ class AbstractWriteRepository(
 
 
 class AbstractRepository(
-    AbstractWriteRepository[T_MODEL], AbstractReadRepository[T_MODEL], ABC
+    Generic[T_PK, T_MODEL],
+    AbstractWriteRepository[T_MODEL],
+    AbstractReadRepository[T_PK, T_MODEL],
+    ABC,
 ):
     pass

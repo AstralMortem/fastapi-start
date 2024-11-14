@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 from fastapi import FastAPI
+from fastapi_start.utils.pagination import init_pagination
 
-SYS_LIFESPANS = []
+SYS_LIFESPANS = [
+    init_pagination,
+]
 
 
 def global_lifespan(user_lifespan=None):

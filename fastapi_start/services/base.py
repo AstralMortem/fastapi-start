@@ -3,7 +3,9 @@ from uuid import UUID
 
 from typing_extensions import Generic
 from fastapi_start.dto import DTO
-from fastapi_start.core.typing import T_MODEL
+from fastapi_start.core.typing import T_MODEL, T_PK
+from fastapi_start.utils.filter import Filter
+from fastapi_start.utils.pagination import PaginationParams, Page
 from fastapi_start.repositories.abstract import (
     BaseAbstractRepository,
     AbstractRepository,
@@ -12,21 +14,21 @@ from fastapi_start.repositories.abstract import (
 )
 
 
-class BaseService(Generic[T_MODEL]):
+class BaseService(Generic[T_PK, T_MODEL]):
     def __init__(
         self,
         repository: Union[
             BaseAbstractRepository[T_MODEL],
-            AbstractRepository[T_MODEL],
-            AbstractReadRepository[T_MODEL],
+            AbstractRepository[T_PK, T_MODEL],
+            AbstractReadRepository[T_PK, T_MODEL],
             AbstractWriteRepository[T_MODEL],
         ],
     ):
         self.repository = repository
 
 
-class CommonServiceImpl(BaseService[T_MODEL]):
-    async def _get_item(self, id: Union[int, str, UUID]) -> Optional[T_MODEL]:
+class CommonServiceImpl(BaseService[T_PK, T_MODEL]):
+    async def _get_item(self, id: T_PK) -> Optional[T_MODEL]:
         instance = await self.get_item(id)
         if not instance:
             raise ValueError("Item not found")
@@ -36,25 +38,28 @@ class CommonServiceImpl(BaseService[T_MODEL]):
         validated_data = data.model_dump()
         return await self.repository.create(validated_data)
 
-    async def get_item(self, id: Union[int, str, UUID]) -> Optional[T_MODEL]:
+    async def get_item(self, id: T_PK) -> Optional[T_MODEL]:
         instance = await self.repository.get_by_id(id)
         return instance
 
-    async def list_items(self, **kwargs) -> List[T_MODEL]:
-        return await self.repository.list(**kwargs)
+    async def filter_item(self, filters: Optional[Filter] = None) -> Optional[T_MODEL]:
+        return await self.repository.get(filters)
 
-    async def update_item(self, id: Union[int, str, UUID], data: DTO) -> T_MODEL:
+    async def list_items(
+        self, pagination: PaginationParams, filters: Optional[Filter] = None
+    ) -> Page[T_MODEL]:
+        return await self.repository.list(pagination, filters)
+
+    async def update_item(self, id: T_PK, data: DTO) -> T_MODEL:
         instance = await self._get_item(id)
         validated_data = data.model_dump()
         return await self.repository.update(instance, validated_data)
 
-    async def patch_item(
-        self, id: Union[int, str, UUID], data: DTO
-    ) -> Optional[T_MODEL]:
+    async def patch_item(self, id: T_PK, data: DTO) -> Optional[T_MODEL]:
         instance = await self._get_item(id)
         validated_data = data.model_dump(exclude_none=True, exclude_unset=True)
         return await self.repository.update(instance, validated_data)
 
-    async def delete_item(self, id: Union[int, str, UUID]) -> None:
+    async def delete_item(self, id: T_PK) -> None:
         instance = await self._get_item(id)
         await self.repository.delete(instance)

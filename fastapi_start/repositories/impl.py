@@ -1,6 +1,4 @@
-from typing import Optional, Union, List, Any, Sequence
-from uuid import UUID
-
+from typing import Optional
 from .abstract import (
     AbstractUpdate,
     AbstractGet,
@@ -11,8 +9,10 @@ from .abstract import (
     AbstractCreate,
     AbstractDelete,
 )
-from fastapi_start.core.typing import T_MODEL
-from sqlalchemy import select, Row, RowMapping
+from fastapi_start.core.typing import T_MODEL, T_PK
+from fastapi_start.utils.filter import Filter
+from fastapi_start.utils.pagination import PaginationParams, Page, paginate
+from sqlalchemy import select
 
 
 class CreateRepositoryImpl(AbstractCreate[T_MODEL]):
@@ -25,17 +25,27 @@ class CreateRepositoryImpl(AbstractCreate[T_MODEL]):
         return instance
 
 
-class GetRepositoryImpl(AbstractGet[T_MODEL]):
-    async def get_by_id(self, id: Union[int, str, UUID]) -> Optional[T_MODEL]:
+class GetRepositoryImpl(AbstractGet[T_PK, T_MODEL]):
+    async def get_by_id(self, id: T_PK) -> Optional[T_MODEL]:
         instance = await self.session.get(self.model, id)
         return instance
 
+    async def get(self, filters: Optional[Filter] = None) -> Optional[T_MODEL]:
+        qs = select(self.model)
+        if filters:
+            qs = filters.filter(qs)
+        return await self.session.scalar(qs)
+
 
 class ListRepositoryImpl(AbstractList[T_MODEL]):
-    async def list(self, **kwargs) -> Sequence[T_MODEL]:
-        qs = select(self.model).filter_by(**kwargs)
-        instances = await self.session.scalars(qs)
-        return instances.all()
+    async def list(
+        self, pagination: PaginationParams, filters: Optional[Filter] = None
+    ) -> Page[T_MODEL]:
+        qs = select(self.model)
+        if filters:
+            qs = filters.filter(qs)
+
+        return await paginate(self.session, qs, pagination)
 
 
 class DeleteRepositoryImpl(AbstractDelete[T_MODEL]):
@@ -53,8 +63,8 @@ class UpdateRepositoryImpl(AbstractUpdate[T_MODEL]):
 
 
 class ReadRepositoryImpl(
-    AbstractReadRepository[T_MODEL],
-    GetRepositoryImpl[T_MODEL],
+    AbstractReadRepository[T_PK, T_MODEL],
+    GetRepositoryImpl[T_PK, T_MODEL],
     ListRepositoryImpl[T_MODEL],
 ):
     pass
@@ -70,8 +80,8 @@ class WriteRepositoryImpl(
 
 
 class CRUDRepositoryImpl(
-    AbstractRepository[T_MODEL],
-    ReadRepositoryImpl[T_MODEL],
+    AbstractRepository[T_PK, T_MODEL],
+    ReadRepositoryImpl[T_PK, T_MODEL],
     WriteRepositoryImpl[T_MODEL],
 ):
     pass
